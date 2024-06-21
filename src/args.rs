@@ -24,6 +24,13 @@ pub enum Command {
     /// The GITHUB_COMMENT_TOKEN environment variable must be set to a token with the write permission
     /// for issues or pull requests on the target repository.
     WriteComment(WriteCommentArgs),
+
+    /// Read commands from github issue_comment webhook and trigger gitlab pipelines.
+    /// Command and comment_id are provided in the $COMMAND and $COMMENT_ID CI variables.
+    ///
+    /// The GITHUB_COMMENT_TOKEN environment variable must be set to a token with the read permission
+    /// for issues or pull requests on the target repository.
+    TriggerWebhookCommands(TriggerWebhookCommandsArgs),
 }
 
 #[derive(clap::Args)]
@@ -46,4 +53,23 @@ pub struct WriteCommentArgs {
 
     /// A file containing the text of the comment.
     pub text: PathBuf,
+}
+
+#[derive(clap::Args)]
+pub struct TriggerWebhookCommandsArgs {
+    /// A json file containing the webhook contents
+    #[arg(long)]
+    pub webhook: PathBuf,
+
+    /// Acceptable bot, can be specified multiple times
+    #[arg(long = "bot")]
+    pub bots: Vec<String>,
+
+    /// The GitLab instance the commands are to be executed on
+    #[arg(long)]
+    pub gl_instance: String,
+
+    /// Your GitLab job token
+    #[arg(long)]
+    pub job_token: String,
 }

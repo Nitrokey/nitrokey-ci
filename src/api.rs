@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Context as _, Result};
 use octocrab::{
     commits::PullRequestTarget,
@@ -5,25 +7,27 @@ use octocrab::{
     Octocrab,
 };
 
-pub fn init(owner: String, repo: String, api_token: String) -> Result<Api> {
-    let octocrab = Octocrab::builder()
-        .personal_token(api_token)
-        .build()
-        .context("failed to create API client")?;
-    Ok(Api {
-        octocrab,
-        owner,
-        repo,
-    })
-}
+use crate::webhook_command_utils::BotCommand;
 
-pub struct Api {
+pub struct GitHubApi {
     octocrab: Octocrab,
     owner: String,
     repo: String,
 }
 
-impl Api {
+impl GitHubApi {
+    pub fn init(owner: &str, repo: &str, api_token: String) -> Result<GitHubApi> {
+        let octocrab = Octocrab::builder()
+            .personal_token(api_token)
+            .build()
+            .context("failed to create API client")?;
+        Ok(GitHubApi {
+            octocrab,
+            owner: owner.to_owned(),
+            repo: repo.to_owned(),
+        })
+    }
+
     pub async fn find_pull_request(&self, commit: &str) -> Result<PullRequest> {
         let mut pull_requests = self
             .octocrab
@@ -104,5 +108,68 @@ impl Api {
                 )
             })?;
         Ok(())
+    }
+
+    pub async fn get_pull_request_by_id(&self, id: u64) -> Result<PullRequest> {
+        self.octocrab
+            .pulls(self.owner.to_owned(), self.repo.to_owned())
+            .get(id)
+            .await
+            .context("Error: Failed to fetch matching pull request")
+    }
+}
+
+pub struct GitLabAPI {
+    token: String,
+    instance: String,
+    namespace: String,
+    repo: String,
+}
+
+impl GitLabAPI {
+    pub fn init(token: &str, instance: &str, namespace: &str, repo: &str) -> Self {
+        GitLabAPI {
+            token: token.to_string(),
+            instance: instance.to_string(),
+            namespace: namespace.to_string(),
+            repo: repo.to_string(),
+        }
+    }
+
+    async fn trigger_pipeline_with_variables(
+        &self,
+        branch: &str,
+        variables: HashMap<&str, &str>,
+    ) -> Result<String> {
+        let client = reqwest::Client::new();
+        let url = format!(
+            "https://{}/api/v4/projects/{}%2F{}/trigger/pipeline?token={}&ref={}",
+            self.instance, self.namespace, self.repo, self.token, branch
+        );
+
+        let form: Vec<(String, String)> = variables
+            .iter()
+            .map(|(k, v)| (format!("variables[{k}]"), v.to_string()))
+            .collect();
+        let res = client.post(url).form(&form).send().await?;
+        res.text()
+            .await
+            .context("failed to get gitlab api response")
+    }
+
+    pub async fn trigger_pipeline_with_command(
+        &self,
+        branch: &str,
+        command: &BotCommand,
+        comment_id: &str,
+    ) -> Result<String> {
+        let mut variables = HashMap::new();
+        variables.insert("COMMAND_BOT", command.bot.as_str());
+        variables.insert("COMMAND", command.command.as_str());
+        variables.insert("COMMAND_ARGS", command.args.as_str());
+        variables.insert("COMMENT_ID", comment_id);
+
+        self.trigger_pipeline_with_variables(branch, variables)
+            .await
     }
 }
