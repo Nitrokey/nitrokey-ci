@@ -1,4 +1,8 @@
-use crate::webhook::Webhook;
+use crate::{
+    api::{GitHubApi, RepoPermission},
+    webhook::Webhook,
+};
+use anyhow::{bail, Result};
 
 #[derive(PartialEq, Debug)]
 pub struct BotCommand {
@@ -7,27 +11,28 @@ pub struct BotCommand {
     pub bot: String,
 }
 
-pub fn extract_commands(webhook: &Webhook, bots: &Vec<String>) -> Vec<BotCommand> {
+pub async fn extract_commands(
+    webhook: &Webhook,
+    bots: &Vec<String>,
+    api: &GitHubApi,
+) -> Result<Vec<BotCommand>> {
     // prevent bots from triggering commands potentially creating loops
     if bots.contains(&webhook.author) {
-        println!("{} cannot trigger commands", webhook.author);
-        return vec![];
+        bail!("{} cannot trigger commands", webhook.author);
     }
 
     // only continue if comment was not deleted
+
     if webhook.action.eq("deleted") {
-        println!("Exiting: comment deleted");
-        return vec![];
+        bail!("Exiting: comment deleted");
     }
 
     // ensure author of command has sufficient rights
-    let rights = &webhook.author_association;
-    if !(rights.eq("OWNER") || rights.eq("COLLABORATOR")) {
-        println!("permission denied: {}", rights);
-        return vec![];
+    let perm = api.get_user_permission(&webhook.author).await?;
+    if perm < RepoPermission::Maintain {
+        bail!("Insufficient permissions: {:?} ({})", perm, webhook.author);
     }
-
-    parse_commands(&webhook.comment, bots)
+    Ok(parse_commands(&webhook.comment, bots))
 }
 
 fn parse_commands(text: &str, bots: &Vec<String>) -> Vec<BotCommand> {

@@ -213,7 +213,7 @@
     "default_branch": "main"
   },
   "sender": {
-    "login": "authorlogin",
+    "login": "notauthorlogin",
     "id": 111111111,
     "node_id": "node_id",
     "avatar_url": "https://avatars.githubusercontent.com/u/111111111?v=4",

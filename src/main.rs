@@ -60,15 +60,15 @@ async fn trigger_webhook_commands(
     api_token: String,
 ) -> Result<()> {
     let webhook = Webhook::parse(&args.webhook)?;
-    let commands = webhook_command_utils::extract_commands(&webhook, &args.bots);
+    let api = api::GitHubApi::init(&webhook.repo.owner, &webhook.repo.name, api_token)?;
+
+    let commands = webhook_command_utils::extract_commands(&webhook, &args.bots, &api).await?;
     if commands.is_empty() {
         println!("No commands found");
         return Ok(());
     }
 
     // get pull request and assosiated branch
-    let api = api::GitHubApi::init(&webhook.repo.owner, &webhook.repo.name, api_token)?;
-
     let pull_request = api.get_pull_request_by_id(webhook.issue_number).await?;
     let branch = pull_request.head.ref_field;
     println!("Found PR branch: {branch}");

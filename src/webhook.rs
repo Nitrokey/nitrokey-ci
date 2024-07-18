@@ -1,5 +1,6 @@
 use std::{fs, path::PathBuf};
 
+use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
 use serde::Deserialize;
@@ -26,6 +27,7 @@ struct WebhookRaw {
     comment: WebhookComment,
     issue: WebhookIssue,
     repository: WebhookRepository,
+    sender: WebhookSender,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +55,11 @@ struct WebhookRepository {
 }
 
 #[derive(Deserialize)]
+struct WebhookSender {
+    login: String,
+}
+
+#[derive(Deserialize)]
 struct WebhookRepositoryOwner {
     login: String,
 }
@@ -71,6 +78,10 @@ impl Webhook {
     pub fn parse_from_str(text: &str) -> Result<Self> {
         let raw: WebhookRaw = serde_json::from_str(text)
             .with_context(|| "Error: Failed to read json data from issue_comment data")?;
+        ensure!(
+            raw.sender.login == raw.comment.user.login,
+            "Only the author of a comment can start commands!"
+        );
         let action = raw.action;
         let comment = raw.comment.body;
         let comment_id = raw.comment.id.to_string();
@@ -100,6 +111,8 @@ mod tests {
     use super::*;
 
     const WEBHOOK_DATA: &str = include_str!("../test/webhook_test_data.json");
+    const WEBHOOK_DATA_ERR: &str =
+        include_str!("../test/webhook_test_data_edit_by_non_author.json");
 
     #[test]
     fn test_parse_webhook() {
@@ -120,5 +133,11 @@ mod tests {
                 name: "reponame".to_string()
             }
         );
+    }
+
+    #[test]
+    fn test_parse_webhook_fail() {
+        let webhook = Webhook::parse_from_str(WEBHOOK_DATA_ERR);
+        assert!(webhook.is_err());
     }
 }

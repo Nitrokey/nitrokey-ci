@@ -1,13 +1,44 @@
 use std::collections::HashMap;
 
-use anyhow::{Context as _, Result};
+use anyhow::{anyhow, Context as _, Result};
 use octocrab::{
     commits::PullRequestTarget,
     models::{issues::Comment, pulls::PullRequest, IssueState},
     Octocrab,
 };
+use serde::Deserialize;
 
 use crate::webhook_command_utils::BotCommand;
+
+#[derive(PartialOrd, Ord, PartialEq, Eq, Debug)]
+pub enum RepoPermission {
+    Read,
+    Triage,
+    Write,
+    Maintain,
+    Admin,
+}
+
+impl RepoPermission {
+    pub fn from_str(perm: &str) -> Result<Self> {
+        match perm {
+            "read" => Ok(Self::Read),
+            "triage" => Ok(Self::Triage),
+            "write" => Ok(Self::Write),
+            "maintain" => Ok(Self::Maintain),
+            "admin" => Ok(Self::Admin),
+            _ => Err(anyhow!(
+                "RepoPermission::from_str: Permission invalid ({perm})"
+            )),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RawRepoPermission {
+    pub login: String,
+    pub role_name: String,
+}
 
 pub struct GitHubApi {
     octocrab: Octocrab,
@@ -116,6 +147,24 @@ impl GitHubApi {
             .get(id)
             .await
             .context("Error: Failed to fetch matching pull request")
+    }
+
+    pub async fn get_user_permission(&self, user: &str) -> Result<RepoPermission> {
+        // TODO change to using builtins ones implemented (affiliation parameter)
+        let res = self
+            .octocrab
+            .get::<Vec<RawRepoPermission>, &str, ()>(
+                &format!(
+                    "/repos/{}/{}/collaborators?affiliation=direct",
+                    self.owner, self.repo
+                ),
+                None::<&()>,
+            )
+            .await?;
+        res.into_iter()
+            .find(|r| r.login.eq(user))
+            .ok_or(anyhow!("User {user} has no permissions specified"))
+            .and_then(|r| RepoPermission::from_str(&r.role_name))
     }
 }
 
