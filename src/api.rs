@@ -69,6 +69,9 @@ impl GitHubApi {
             .context("failed to fetch matching pull requests")?
             .items;
         pull_requests.retain(|pr| pr.state == Some(IssueState::Open));
+        // There can be multi-stage PR that depend on each other. We only want to find the PR
+        // that wants to merge exactly this comment.
+        pull_requests.retain(|pr| pr.head.sha == commit);
         if pull_requests.is_empty() {
             // The commit endpoint only knows commits on a branch of this repository, so a
             // pull request from a fork stays invisible to it until it is merged. Its head
