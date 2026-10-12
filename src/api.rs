@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context as _, Result};
 use octocrab::{
     commits::PullRequestTarget,
     models::{issues::Comment, pulls::PullRequest, IssueState},
-    Octocrab,
+    params, Octocrab,
 };
 use serde::Deserialize;
 
@@ -69,6 +69,12 @@ impl GitHubApi {
             .context("failed to fetch matching pull requests")?
             .items;
         pull_requests.retain(|pr| pr.state == Some(IssueState::Open));
+        if pull_requests.is_empty() {
+            // The commit endpoint only knows commits on a branch of this repository, so a
+            // pull request from a fork stays invisible to it until it is merged. Its head
+            // commit is listed with the open pull requests all the same.
+            pull_requests = self.find_open_pull_requests_by_head(commit).await?;
+        }
         anyhow::ensure!(
             pull_requests.len() <= 1,
             "multiple open pull request found for commit {} in repository {}/{}",
@@ -82,6 +88,25 @@ impl GitHubApi {
                 commit, self.owner, self.repo
             )
         })
+    }
+
+    async fn find_open_pull_requests_by_head(&self, commit: &str) -> Result<Vec<PullRequest>> {
+        let page = self
+            .octocrab
+            .pulls(self.owner.clone(), self.repo.clone())
+            .list()
+            .state(params::State::Open)
+            .per_page(100)
+            .send()
+            .await
+            .context("failed to list open pull requests")?;
+        let mut pull_requests = self
+            .octocrab
+            .all_pages(page)
+            .await
+            .context("failed to list open pull requests")?;
+        pull_requests.retain(|pr| pr.head.sha == commit);
+        Ok(pull_requests)
     }
 
     pub async fn find_comment(
